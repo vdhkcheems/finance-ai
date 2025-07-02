@@ -1,0 +1,8 @@
+pandas
+numpy
+google-generativeai
+langgraph
+python-dotenv
+matplotlib
+fuzzywuzzy
+python-Levenshtein

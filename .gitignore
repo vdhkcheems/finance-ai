@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+graphs/
+config/.env
+config/__pycache__/
+agents/__pycache__/
