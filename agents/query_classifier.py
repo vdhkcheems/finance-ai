@@ -23,6 +23,26 @@ def fuzzy_match_entities(query, companies, sectors, threshold=70):
     potential_companies = []
     potential_sectors = []
     
+    # Company ticker/code mapping
+    company_codes = {
+        'infy': 'infosys',
+        'tcs': 'tcs',  # Already matches
+        'wipro': 'wipro',  # Already matches
+        'hdfcbank': 'hdfc bank',
+        'icicibank': 'icici bank', 
+        'axisbank': 'axis bank',
+        'reliance': 'reliance industries',
+        'ntpc': 'ntpc',  # Already matches
+        'sunpharma': 'sun pharma',
+        'drreddy': "dr. reddy's"
+    }
+    
+    # Check for company codes first
+    for code, company_name in company_codes.items():
+        if code in query_lower:
+            if company_name in companies:
+                potential_companies.append(company_name)
+    
     # Enhanced company matching with fuzzywuzzy
     for company in companies:
         company_lower = company.lower()
