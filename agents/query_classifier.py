@@ -8,20 +8,32 @@ from fuzzywuzzy import fuzz, process
 import json
 
 def get_company_sector_data(csv_path='data/data.csv'):
-    """Load and return company and sector data from CSV"""
+    """Load and return company, sector, and indices data from CSV"""
     df = pd.read_csv(csv_path)
     companies = df['company'].str.lower().unique().tolist()
     sectors = df['sector'].str.lower().unique().tolist()
-    return companies, sectors, df
+    
+    # Extract unique indices from the comma-separated indices column
+    all_indices = []
+    for indices_str in df['indices'].dropna():
+        # Split by comma and strip whitespace
+        indices_list = [idx.strip().lower() for idx in indices_str.split(',')]
+        all_indices.extend(indices_list)
+    
+    # Get unique indices
+    indices = list(set(all_indices))
+    
+    return companies, sectors, indices, df
 
-def fuzzy_match_entities(query, companies, sectors, threshold=70):
+def fuzzy_match_entities(query, companies, sectors, indices, threshold=70):
     """
-    Use fuzzywuzzy for intelligent fuzzy matching to find potential company/sector matches
+    Use fuzzywuzzy for intelligent fuzzy matching to find potential company/sector/index matches
     instead of sending all names to LLM. Uses advanced string matching algorithms.
     """
     query_lower = query.lower()
     potential_companies = []
     potential_sectors = []
+    potential_indices = []
     
     # Company ticker/code mapping
     company_codes = {
@@ -103,11 +115,41 @@ def fuzzy_match_entities(query, companies, sectors, threshold=70):
         if fuzz.partial_ratio(sector_lower, query_lower) >= threshold:
             potential_sectors.append(sector)
     
+    # Enhanced index matching
+    # Create expanded index variations for better matching
+    index_variations = {
+        'nifty 50': ['nifty', 'nifty 50', 'nifty50', 'nse nifty', 'nifty index'],
+        'nse 500': ['nse 500', 'nse500', 'nse index', 'nse broad index'],
+        'bse 30': ['bse 30', 'bse30', 'sensex', 'bse sensex', 'bse index']
+    }
+    
+    for index in indices:
+        index_lower = index.lower()
+        
+        # Direct match
+        if index_lower in query_lower:
+            potential_indices.append(index)
+            continue
+            
+        # Check variations
+        if index_lower in index_variations:
+            for variation in index_variations[index_lower]:
+                if variation in query_lower:
+                    potential_indices.append(index)
+                    break
+            if index in potential_indices:
+                continue
+                
+        # Fuzzy matching for indices
+        if fuzz.partial_ratio(index_lower, query_lower) >= threshold:
+            potential_indices.append(index)
+    
     # Remove duplicates while preserving order
     potential_companies = list(dict.fromkeys(potential_companies))
     potential_sectors = list(dict.fromkeys(potential_sectors))
+    potential_indices = list(dict.fromkeys(potential_indices))
     
-    return potential_companies, potential_sectors
+    return potential_companies, potential_sectors, potential_indices
 
 def classify_and_parse_query(query, csv_path='data/data.csv'):
     """
@@ -116,11 +158,11 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
     """
     
     # Load data and do local fuzzy matching
-    companies, sectors, df = get_company_sector_data(csv_path)
-    potential_companies, potential_sectors = fuzzy_match_entities(query, companies, sectors)
+    companies, sectors, indices, df = get_company_sector_data(csv_path)
+    potential_companies, potential_sectors, potential_indices = fuzzy_match_entities(query, companies, sectors, indices)
     
     # OPTIMIZATION: If no potential matches found locally, skip LLM entirely
-    if not potential_companies and not potential_sectors:
+    if not potential_companies and not potential_sectors and not potential_indices:
         # Check if query seems financial in nature (contains financial keywords)
         financial_keywords = ['sales', 'profit', 'revenue', 'earnings', 'roe', 'debt', 'dividend', 
                             'stock', 'price', 'market', 'financial', 'performance', 'growth',
@@ -135,6 +177,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
                 "classification": "financial_unknown",
                 "company": None,
                 "sector": None,
+                "indices": None,
                 "fundamental": None,
                 "time_period": "2015-2024",
                 "graph_needed": False,
@@ -146,6 +189,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
                 "classification": "non_financial",
                 "company": None,
                 "sector": None,
+                "indices": None,
                 "fundamental": None,
                 "time_period": "2015-2024",
                 "graph_needed": False,
@@ -165,9 +209,14 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
         'it': 'IT', 'banking': 'Banking', 'energy': 'Energy', 'pharma': 'Pharma'
     }
     
+    indices_mapping = {
+        'nifty 50': 'Nifty 50', 'nse 500': 'NSE 500', 'bse 30': 'BSE 30'
+    }
+    
     # Convert potential matches to proper case
     potential_companies_display = [company_mapping.get(c, c.title()) for c in potential_companies]
     potential_sectors_display = [sector_mapping.get(s, s.title()) for s in potential_sectors]
+    potential_indices_display = [indices_mapping.get(i, i.title()) for i in potential_indices]
     
     fundamentals = ['sales', 'net profit', 'roe', 'debt equity', 'dividend yield', 'avg price']
     
@@ -176,23 +225,28 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
 
         Detected companies: {potential_companies_display}
         Detected sectors: {potential_sectors_display}
+        Detected indices: {potential_indices_display}
         Available fundamentals: {fundamentals}
 
         Return a JSON object with these fields:
         1. "classification": Must be "financial_known" (since we detected relevant entities)
         2. "company": List of company names from detected companies (e.g., ["Infosys", "TCS"]). Use null if not mentioned.
         3. "sector": List of sectors from detected sectors (e.g., ["IT", "Banking"]). Use null if not mentioned.
-        4. "fundamental": Financial metric requested (e.g., "sales", "net profit", "roe", "avg price"). Use null if not mentioned. Use "avg price" for stock price queries.
-        5. "time_period": Time period string (e.g., "2019", "2020-2024", "2015-2024"). Use "2015-2024" if not mentioned. For "last 5 years" use "2020-2024". For single year use format "2021-2021".
-        6. "graph_needed": true if query implies/requests a graph, chart, plot, or visualization, false otherwise.
-        7. "table_needed": true if query implies/requests a table or tabular data, false otherwise.
+        4. "indices": List of indices from detected indices (e.g., ["Nifty 50", "NSE 500"]). Use null if not mentioned.
+        5. "fundamental": Financial metric requested (e.g., "sales", "net profit", "roe", "avg price"). Use null if not mentioned. Use "avg price" for stock price queries.
+        6. "time_period": Time period string (e.g., "2019", "2020-2024", "2015-2024"). Use "2015-2024" if not mentioned. For "last 5 years" use "2020-2024". For single year use format "2021-2021".
+        7. "graph_needed": true if query implies/requests a graph, chart, plot, or visualization, false otherwise.
+        8. "table_needed": true if query implies/requests a table or tabular data, false otherwise.
 
         Return ONLY valid JSON, no explanations.
         
         Query: "{query}"
     """
     
-    response = model.generate_content(prompt)
+    response = model.generate_content(
+        prompt,
+        generation_config={"temperature": 0.1}
+    )
     cleaned = response.text.strip().strip('```json').strip('```').strip()
     
     try:
@@ -205,6 +259,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
             "classification": "financial_known",
             "company": potential_companies_display if potential_companies_display else None,
             "sector": potential_sectors_display if potential_sectors_display else None,
+            "indices": potential_indices_display if potential_indices_display else None,
             "fundamental": None,
             "time_period": "2015-2024",
             "graph_needed": False,
@@ -222,6 +277,7 @@ def classify_and_parse_node(state: dict) -> dict:
     state["classification"] = result["classification"]
     state["company"] = result["company"]
     state["sector"] = result["sector"]
+    state["indices"] = result["indices"]
     state["fundamental"] = result["fundamental"]
     state["time_period"] = result["time_period"]
     state["graph_needed"] = result["graph_needed"]

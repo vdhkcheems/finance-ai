@@ -93,6 +93,7 @@ def create_time_series_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) -
     
     fundamental = metadata.get("fundamental", "Financial Metric")
     companies = df['company'].unique()
+    indices = state.get("indices", [])
     
     # Create line plot for each company
     for company in companies:
@@ -102,11 +103,14 @@ def create_time_series_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) -
             ax.plot(company_data['year'], company_data['value'], 
                     marker='o', linewidth=2, label=company.title(), markersize=6)
     
-    # Customize the plot
+    # Customize the plot title based on context
+    title_parts = [f'{fundamental.replace("_", " ").title()} Trends Over Time']
+    if indices:
+        title_parts.append(f'({", ".join(indices)} companies)')
+    
     ax.set_xlabel('Year', fontsize=12, fontweight='bold')
     ax.set_ylabel(f'{fundamental.replace("_", " ").title()}', fontsize=12, fontweight='bold')
-    ax.set_title(f'{fundamental.replace("_", " ").title()} Trends Over Time', 
-                fontsize=14, fontweight='bold', pad=20)
+    ax.set_title(' '.join(title_parts), fontsize=14, fontweight='bold', pad=20)
     
     # Format x-axis to show years properly
     years = sorted(df['year'].unique())
@@ -122,7 +126,12 @@ def create_time_series_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) -
     
     # Generate filename
     companies_str = "_".join([c.replace(" ", "_").lower() for c in companies[:3]])
-    filename = f"graphs/{fundamental}_{companies_str}_trend.png"
+    indices_str = "_".join([i.replace(" ", "_").lower() for i in indices]) if indices else ""
+    filename_parts = [fundamental, companies_str]
+    if indices_str:
+        filename_parts.append(indices_str)
+    filename_parts.append("trend")
+    filename = f"graphs/{'_'.join(filename_parts)}.png"
     
     return filename
 
@@ -130,6 +139,7 @@ def create_comparison_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) ->
     """Create comparison plot for multiple companies"""
     
     fundamental = metadata.get("fundamental", "Financial Metric")
+    indices = state.get("indices", [])
     
     if 'year' in df.columns:
         # Multi-year comparison - use grouped bar chart
@@ -137,10 +147,15 @@ def create_comparison_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) ->
         
         # Create grouped bar chart
         pivot_df.plot(kind='bar', ax=ax, width=0.8)
+        
+        # Customize title based on context
+        title_parts = [f'{fundamental.replace("_", " ").title()} Comparison Across Companies']
+        if indices:
+            title_parts.append(f'({", ".join(indices)} Index)')
+        
         ax.set_xlabel('Year', fontsize=12, fontweight='bold')
         ax.set_ylabel(f'{fundamental.replace("_", " ").title()}', fontsize=12, fontweight='bold')
-        ax.set_title(f'{fundamental.replace("_", " ").title()} Comparison Across Companies', 
-                    fontsize=14, fontweight='bold', pad=20)
+        ax.set_title(' '.join(title_parts), fontsize=14, fontweight='bold', pad=20)
         
         # Rotate x-axis labels
         ax.set_xticklabels(pivot_df.index, rotation=45)
@@ -159,10 +174,15 @@ def create_comparison_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) ->
         # Create colors for bars
         colors = plt.cm.get_cmap('Set3')(np.linspace(0, 1, len(companies)))
         bars = ax.bar(companies, values, color=colors)
+        
+        # Customize title based on context
+        title_parts = [f'{fundamental.replace("_", " ").title()} Comparison']
+        if indices:
+            title_parts.append(f'({", ".join(indices)} Index)')
+        
         ax.set_xlabel('Company', fontsize=12, fontweight='bold')
         ax.set_ylabel(f'{fundamental.replace("_", " ").title()}', fontsize=12, fontweight='bold')
-        ax.set_title(f'{fundamental.replace("_", " ").title()} Comparison', 
-                    fontsize=14, fontweight='bold', pad=20)
+        ax.set_title(' '.join(title_parts), fontsize=14, fontweight='bold', pad=20)
         
         # Add value labels on bars
         for bar, value in zip(bars, values):
@@ -182,8 +202,14 @@ def create_comparison_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) ->
     format_y_axis(ax, df['value'])
     
     # Generate filename
+    companies = df['company'].unique()
     companies_str = "_".join([c.replace(" ", "_").lower() for c in companies[:3]])
-    filename = f"graphs/{fundamental}_{companies_str}_comparison.png"
+    indices_str = "_".join([i.replace(" ", "_").lower() for i in indices]) if indices else ""
+    filename_parts = [fundamental, companies_str]
+    if indices_str:
+        filename_parts.append(indices_str)
+    filename_parts.append("comparison")
+    filename = f"graphs/{'_'.join(filename_parts)}.png"
     
     return filename
 
@@ -191,6 +217,7 @@ def create_overview_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) -> s
     """Create overview plot for single entity or sector"""
     
     fundamental = metadata.get("fundamental", "Financial Metric")
+    indices = state.get("indices", [])
     
     if 'year' in df.columns and len(df['year'].unique()) > 1:
         # Time series for single entity
@@ -201,10 +228,14 @@ def create_overview_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) -> s
                marker='o', linewidth=3, markersize=8, color='#2E86AB')
         ax.fill_between(df_sorted['year'], df_sorted['value'], alpha=0.3, color='#2E86AB')
         
+        # Customize title based on context
+        title_parts = [f'{company_name.title()} - {fundamental.replace("_", " ").title()} Trend']
+        if indices:
+            title_parts.append(f'({", ".join(indices)} Index)')
+        
         ax.set_xlabel('Year', fontsize=12, fontweight='bold')
         ax.set_ylabel(f'{fundamental.replace("_", " ").title()}', fontsize=12, fontweight='bold')
-        ax.set_title(f'{company_name.title()} - {fundamental.replace("_", " ").title()} Trend', 
-                    fontsize=14, fontweight='bold', pad=20)
+        ax.set_title(' '.join(title_parts), fontsize=14, fontweight='bold', pad=20)
         
         # Format x-axis
         years = sorted(df['year'].unique())
@@ -218,9 +249,14 @@ def create_overview_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) -> s
         
         # Create a simple bar chart with single value
         bar = ax.bar([company_name], [value], color='#2E86AB', width=0.6)
+        
+        # Customize title based on context
+        title_parts = [f'{company_name.title()} - {fundamental.replace("_", " ").title()}']
+        if indices:
+            title_parts.append(f'({", ".join(indices)} Index)')
+        
         ax.set_ylabel(f'{fundamental.replace("_", " ").title()}', fontsize=12, fontweight='bold')
-        ax.set_title(f'{company_name.title()} - {fundamental.replace("_", " ").title()}', 
-                    fontsize=14, fontweight='bold', pad=20)
+        ax.set_title(' '.join(title_parts), fontsize=14, fontweight='bold', pad=20)
         
         # Add value label on bar
         ax.text(bar[0].get_x() + bar[0].get_width()/2., bar[0].get_height(),
@@ -235,7 +271,12 @@ def create_overview_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) -> s
     
     # Generate filename
     entity_name = df['company'].iloc[0].replace(" ", "_").lower() if 'company' in df.columns else "overview"
-    filename = f"graphs/{fundamental}_{entity_name}_overview.png"
+    indices_str = "_".join([i.replace(" ", "_").lower() for i in indices]) if indices else ""
+    filename_parts = [fundamental, entity_name]
+    if indices_str:
+        filename_parts.append(indices_str)
+    filename_parts.append("overview")
+    filename = f"graphs/{'_'.join(filename_parts)}.png"
     
     return filename
 

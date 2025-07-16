@@ -6,6 +6,7 @@ def retrieve_data(
     csv_path: str = 'data/data.csv',
     company: Optional[List[str]] = None,
     sector: Optional[List[str]] = None,
+    indices: Optional[List[str]] = None,
     fundamental: Optional[str] = None,
     time_period: str = "2015-2024"
 ) -> Dict:
@@ -16,6 +17,7 @@ def retrieve_data(
         csv_path: Path to the CSV file
         company: List of company names to filter
         sector: List of sectors to filter  
+        indices: List of indices to filter (e.g., ["Nifty 50", "NSE 500"])
         fundamental: Financial metric to extract
         time_period: Time range (e.g., "2020-2024", "2021-2021")
     
@@ -57,6 +59,28 @@ def retrieve_data(
                     "metadata": {"sectors_requested": sector, "years": years}
                 }
         
+        # Filter by indices if specified
+        if indices:
+            # For indices, we need to check if any of the requested indices are in the comma-separated indices column
+            indices_lower = [idx.lower() for idx in indices]
+            
+            def check_indices_match(row_indices):
+                if pd.isna(row_indices):
+                    return False
+                # Split the comma-separated indices and check for matches
+                row_indices_list = [idx.strip().lower() for idx in str(row_indices).split(',')]
+                return any(idx in row_indices_list for idx in indices_lower)
+            
+            indices_mask = df['indices'].apply(check_indices_match)
+            df = df.loc[indices_mask].copy()
+            
+            if df.empty:
+                return {
+                    "data": pd.DataFrame(),
+                    "error": f"No data found for indices: {indices}",
+                    "metadata": {"indices_requested": indices, "years": years}
+                }
+        
         # Extract fundamental data if specified
         if fundamental:
             extracted_data = extract_fundamental_data(df, fundamental, years)
@@ -68,7 +92,8 @@ def retrieve_data(
                     "metadata": {
                         "fundamental": fundamental,
                         "years": years,
-                        "companies_found": df['company'].tolist()
+                        "companies_found": df['company'].tolist(),
+                        "indices_found": df['indices'].unique().tolist()
                     }
                 }
             
@@ -79,20 +104,22 @@ def retrieve_data(
                     "fundamental": fundamental,
                     "years": years,
                     "companies_found": df['company'].tolist(),
-                    "sectors_found": df['sector'].unique().tolist()
+                    "sectors_found": df['sector'].unique().tolist(),
+                    "indices_found": df['indices'].unique().tolist()
                 }
             }
         
-        # If no fundamental specified, return company/sector info
+        # If no fundamental specified, return company/sector/indices info
         else:
-            basic_info = df[['company', 'sector']].copy()
+            basic_info = df[['company', 'sector', 'indices']].copy()
             return {
                 "data": basic_info,
                 "error": None,
                 "metadata": {
                     "years": years,
                     "companies_found": df['company'].tolist(),
-                    "sectors_found": df['sector'].unique().tolist()
+                    "sectors_found": df['sector'].unique().tolist(),
+                    "indices_found": df['indices'].unique().tolist()
                 }
             }
             
@@ -205,6 +232,7 @@ def retrieve_node(state: dict) -> dict:
     # Extract parameters from state
     company = state.get("company")
     sector = state.get("sector") 
+    indices = state.get("indices")
     fundamental = state.get("fundamental")
     time_period = state.get("time_period", "2015-2024")
     
@@ -212,6 +240,7 @@ def retrieve_node(state: dict) -> dict:
     result = retrieve_data(
         company=company,
         sector=sector,
+        indices=indices,
         fundamental=fundamental,
         time_period=time_period
     )
