@@ -164,7 +164,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
     # OPTIMIZATION: If no potential matches found locally, skip LLM entirely
     if not potential_companies and not potential_sectors and not potential_indices:
         # Check if query seems financial in nature (contains financial keywords)
-        financial_keywords = ['sales', 'profit', 'revenue', 'earnings', 'roe', 'debt', 'dividend', 
+        financial_keywords = ['sales', 'profit', 'revenue', 'earnings', 'eps', 'roe', 'debt', 'dividend', 
                             'stock', 'price', 'market', 'financial', 'performance', 'growth',
                             'analysis', 'trend', 'comparison', 'quarterly', 'annual']
         
@@ -180,6 +180,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
                 "indices": None,
                 "fundamental": None,
                 "time_period": "2015-2024",
+                "period_type": "annual",
                 "graph_needed": False,
                 "table_needed": False
             }
@@ -192,6 +193,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
                 "indices": None,
                 "fundamental": None,
                 "time_period": "2015-2024",
+                "period_type": "annual",
                 "graph_needed": False,
                 "table_needed": False
             }
@@ -218,28 +220,38 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
     potential_sectors_display = [sector_mapping.get(s, s.title()) for s in potential_sectors]
     potential_indices_display = [indices_mapping.get(i, i.title()) for i in potential_indices]
     
-    fundamentals = ['sales', 'net profit', 'roe', 'debt equity', 'dividend yield', 'avg price']
+    fundamentals = ['sales', 'net profit', 'roe', 'eps', 'debt equity', 'dividend yield', 'avg price']
     
     prompt = f"""
-        You are a financial query classifier and parser. Analyze the user query and return a JSON object with both classification and parsed information.
+        You are a financial query classifier and parser. Your task is to analyze the user's query about financial data and extract key information into a structured JSON format. The available data includes both annual and quarterly figures from 2015 to 2024.
 
-        Detected companies: {potential_companies_display}
-        Detected sectors: {potential_sectors_display}
-        Detected indices: {potential_indices_display}
-        Available fundamentals: {fundamentals}
+        Based on the query and the provided context, return a JSON object with the following fields:
 
-        Return a JSON object with these fields:
-        1. "classification": Must be "financial_known" (since we detected relevant entities)
-        2. "company": List of company names from detected companies (e.g., ["Infosys", "TCS"]). Use null if not mentioned.
-        3. "sector": List of sectors from detected sectors (e.g., ["IT", "Banking"]). Use null if not mentioned.
-        4. "indices": List of indices from detected indices (e.g., ["Nifty 50", "NSE 500"]). Use null if not mentioned.
-        5. "fundamental": Financial metric requested (e.g., "sales", "net profit", "roe", "avg price"). Use null if not mentioned. Use "avg price" for stock price queries.
-        6. "time_period": Time period string (e.g., "2019", "2020-2024", "2015-2024"). Use "2015-2024" if not mentioned. For "last 5 years" use "2020-2024". For single year use format "2021-2021".
-        7. "graph_needed": true if query implies/requests a graph, chart, plot, or visualization, false otherwise.
-        8. "table_needed": true if query implies/requests a table or tabular data, false otherwise.
+        1.  "classification": Must be "financial_known" because relevant entities were detected in the query.
+        2.  "company": A list of company names found in the query. Example: ["Infosys", "TCS"]. If no specific company is mentioned, use null.
+        3.  "sector": A list of business sectors found in the query. Example: ["IT", "Banking"]. If no sector is mentioned, use null.
+        4.  "indices": A list of stock market indices found in the query. Example: ["Nifty 50", "BSE 30"]. If no index is mentioned, use null.
+        5.  "fundamental": The specific financial metric the user is asking about (e.g., "sales", "net profit", "roe", "eps", "debt_equity", "dividend_yield", "avg_price"). Use "avg_price" for any queries related to stock price. If no metric is mentioned, use null.
+        6.  "time_period": The time frame for the query.
+            - For a single year, use "YYYY" (e.g., "2021").
+            - For a range of years, use "YYYY-YYYY" (e.g., "2020-2024").
+            - For a single quarter, use "YYYY-Qn" (e.g., "2022-Q2").
+            - For a range of quarters, use the format "YYYY-Qn to YYYY-Qn" (e.g., "2015-Q3 to 2019-Q2").
+            - If a quarter is mentioned without a year (e.g., "Q2," "q3"), default to the latest year, 2024 (e.g., "2024-Q2").
+            - If no time period is mentioned, default to "2015-2024".
+            - Interpret phrases like "last 5 years" relative to the latest available data (2024), so it would be "2020-2024".
+        7.  "period_type": Specify whether the user wants "annual" or "quarterly" data. If the query mentions "quarter," "quarterly," or a specific quarter (like Q1, Q2), set this to "quarterly." Otherwise, default to "annual".
+        8.  "graph_needed": Set to `true` if the query implies a request for a graph, chart, plot, or any form of visualization. Otherwise, `false`.
+        9.  "table_needed": Set to `true` if the query implies a request for data in a table or tabular format. Otherwise, `false`.
 
-        Return ONLY valid JSON, no explanations.
-        
+        Context for parsing:
+        - Detected Companies: {potential_companies_display}
+        - Detected Sectors: {potential_sectors_display}
+        - Detected Indices: {potential_indices_display}
+        - Available Fundamentals: {fundamentals}
+
+        Return ONLY a valid JSON object. Do not include any explanatory text.
+
         Query: "{query}"
     """
     
@@ -280,6 +292,7 @@ def classify_and_parse_node(state: dict) -> dict:
     state["indices"] = result["indices"]
     state["fundamental"] = result["fundamental"]
     state["time_period"] = result["time_period"]
+    state["period_type"] = result.get("period_type", "annual")
     state["graph_needed"] = result["graph_needed"]
     state["table_needed"] = result["table_needed"]
     

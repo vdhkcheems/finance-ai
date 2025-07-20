@@ -8,7 +8,8 @@ def retrieve_data(
     sector: Optional[List[str]] = None,
     indices: Optional[List[str]] = None,
     fundamental: Optional[str] = None,
-    time_period: str = "2015-2024"
+    time_period: str = "2015-2024",
+    period_type: str = "annual"
 ) -> Dict:
     """
     Retrieve financial data based on parsed query parameters.
@@ -19,204 +20,152 @@ def retrieve_data(
         sector: List of sectors to filter  
         indices: List of indices to filter (e.g., ["Nifty 50", "NSE 500"])
         fundamental: Financial metric to extract
-        time_period: Time range (e.g., "2020-2024", "2021-2021")
+        time_period: Time range (e.g., "2020-2024", "2021", "2022-Q2")
+        period_type: "annual" or "quarterly"
     
     Returns:
         Dict containing filtered data, metadata, and any errors
     """
     
     try:
-        # Load the CSV
         df = pd.read_csv(csv_path)
         
-        # Parse time period
-        start_year, end_year = parse_time_period(time_period)
-        years = list(range(start_year, end_year + 1))
+        # Filter by period_type first
+        df = df[df['period_type'].str.lower() == period_type.lower()]
         
+        # Parse time period
+        start_period, end_period = parse_time_period(time_period, period_type)
+        
+        # Filter by time period
+        if period_type == 'annual':
+            # For annual, period is an integer year
+            df['year'] = pd.to_numeric(df['period'], errors='coerce')
+            df = df[(df['year'] >= start_period) & (df['year'] <= end_period)]
+        else: # quarterly
+            # For quarterly, period is a string 'YYYY-Qn'
+            df = df[(df['period'] >= start_period) & (df['period'] <= end_period)]
+
         # Filter by company if specified
         if company:
-            # Case-insensitive company matching
             company_mask = df['company'].str.lower().isin([c.lower() for c in company])
             df = df.loc[company_mask].copy()
-            
             if df.empty:
-                return {
-                    "data": pd.DataFrame(),
-                    "error": f"No data found for companies: {company}",
-                    "metadata": {"companies_requested": company, "years": years}
-                }
-        
+                return {"data": pd.DataFrame(), "error": f"No data found for companies: {company}", "metadata": {}}
+
         # Filter by sector if specified
         if sector:
-            # Case-insensitive sector matching
             sector_mask = df['sector'].str.lower().isin([s.lower() for s in sector])
             df = df.loc[sector_mask].copy()
-            
             if df.empty:
-                return {
-                    "data": pd.DataFrame(),
-                    "error": f"No data found for sectors: {sector}",
-                    "metadata": {"sectors_requested": sector, "years": years}
-                }
-        
+                return {"data": pd.DataFrame(), "error": f"No data found for sectors: {sector}", "metadata": {}}
+
         # Filter by indices if specified
         if indices:
-            # For indices, we need to check if any of the requested indices are in the comma-separated indices column
             indices_lower = [idx.lower() for idx in indices]
-            
             def check_indices_match(row_indices):
-                if pd.isna(row_indices):
-                    return False
-                # Split the comma-separated indices and check for matches
+                if pd.isna(row_indices): return False
                 row_indices_list = [idx.strip().lower() for idx in str(row_indices).split(',')]
                 return any(idx in row_indices_list for idx in indices_lower)
-            
             indices_mask = df['indices'].apply(check_indices_match)
             df = df.loc[indices_mask].copy()
-            
             if df.empty:
-                return {
-                    "data": pd.DataFrame(),
-                    "error": f"No data found for indices: {indices}",
-                    "metadata": {"indices_requested": indices, "years": years}
-                }
-        
+                return {"data": pd.DataFrame(), "error": f"No data found for indices: {indices}", "metadata": {}}
+
         # Extract fundamental data if specified
         if fundamental:
-            extracted_data = extract_fundamental_data(df, fundamental, years)
-            
+            extracted_data = extract_fundamental_data(df, fundamental)
             if extracted_data.empty:
-                return {
-                    "data": pd.DataFrame(),
-                    "error": f"No data found for fundamental '{fundamental}' in years {years}",
-                    "metadata": {
-                        "fundamental": fundamental,
-                        "years": years,
-                        "companies_found": df['company'].tolist(),
-                        "indices_found": df['indices'].unique().tolist()
-                    }
-                }
+                return {"data": pd.DataFrame(), "error": f"No data found for fundamental '{fundamental}'", "metadata": {}}
+            return {"data": extracted_data, "error": None, "metadata": {}}
             
-            return {
-                "data": extracted_data,
-                "error": None,
-                "metadata": {
-                    "fundamental": fundamental,
-                    "years": years,
-                    "companies_found": df['company'].tolist(),
-                    "sectors_found": df['sector'].unique().tolist(),
-                    "indices_found": df['indices'].unique().tolist()
-                }
-            }
-        
-        # If no fundamental specified, return company/sector/indices info
+        # If no fundamental specified, return basic info
         else:
-            basic_info = df[['company', 'sector', 'indices']].copy()
-            return {
-                "data": basic_info,
-                "error": None,
-                "metadata": {
-                    "years": years,
-                    "companies_found": df['company'].tolist(),
-                    "sectors_found": df['sector'].unique().tolist(),
-                    "indices_found": df['indices'].unique().tolist()
-                }
-            }
+            basic_info = df[['company', 'sector', 'indices', 'period']].copy()
+            return {"data": basic_info, "error": None, "metadata": {}}
             
     except FileNotFoundError:
-        return {
-            "data": pd.DataFrame(),
-            "error": f"CSV file not found: {csv_path}",
-            "metadata": {}
-        }
+        return {"data": pd.DataFrame(), "error": f"CSV file not found: {csv_path}", "metadata": {}}
     except Exception as e:
-        return {
-            "data": pd.DataFrame(),
-            "error": f"Error retrieving data: {str(e)}",
-            "metadata": {}
-        }
+        return {"data": pd.DataFrame(), "error": f"Error retrieving data: {str(e)}", "metadata": {}}
 
-def parse_time_period(time_period: str) -> tuple:
+def parse_time_period(time_period: str, period_type: str) -> tuple:
     """
-    Parse time period string into start and end years.
+    Parse time period string into start and end periods.
+    """
+    if period_type == 'annual':
+        try:
+            if '-' in time_period:
+                start_str, end_str = time_period.split('-')
+                start_year = int(start_str.strip())
+                end_year = int(end_str.strip())
+            else:
+                start_year = end_year = int(time_period.strip())
+            # Validate years
+            start_year = max(2015, min(2024, start_year))
+            end_year = max(2015, min(2024, end_year))
+            return start_year, end_year
+        except (ValueError, AttributeError):
+            return 2015, 2024
+    
+    else: # quarterly
+        try:
+            # For quarterly, time_period can be YYYY-Qn or YYYY-YYYY or YYYY-Qn to YYYY-Qn
+            if ' to ' in time_period: # Quarter range
+                start_str, end_str = time_period.split(' to ')
+                return start_str.strip(), end_str.strip()
+            elif '-Q' in time_period: # Single quarter
+                return time_period, time_period
+            elif '-' in time_period: # Year range
+                start_year, end_year = map(int, time_period.split('-'))
+                start_year = max(2015, min(2024, start_year))
+                end_year = max(2015, min(2024, end_year))
+                return f"{start_year}-Q1", f"{end_year}-Q4"
+            else: # Single year
+                year = int(time_period)
+                year = max(2015, min(2024, year))
+                return f"{year}-Q1", f"{year}-Q4"
+        except (ValueError, AttributeError):
+            return "2015-Q1", "2024-Q4"
+
+
+def extract_fundamental_data(df: pd.DataFrame, fundamental: str) -> pd.DataFrame:
+    """
+    Extract specific fundamental data from the normalized dataframe.
     
     Args:
-        time_period: Time period string (e.g., "2020-2024", "2021-2021")
+        df: Filtered DataFrame in long format.
+        fundamental: Financial metric name (e.g., 'sales', 'net_profit').
     
     Returns:
-        Tuple of (start_year, end_year)
+        DataFrame with company, sector, period, and the fundamental's value.
     """
-    try:
-        if '-' in time_period:
-            start_str, end_str = time_period.split('-')
-            start_year = int(start_str.strip())
-            end_year = int(end_str.strip())
-        else:
-            # Single year
-            start_year = end_year = int(time_period.strip())
-        
-        # Validate years are within available range (2015-2024)
-        start_year = max(2015, min(2024, start_year))
-        end_year = max(2015, min(2024, end_year))
-        
-        return start_year, end_year
-    
-    except (ValueError, AttributeError):
-        # Default to full range if parsing fails
-        return 2015, 2024
+    # Normalize fundamental name to match column names
+    fundamental_col = fundamental.replace(' ', '_')
 
-def extract_fundamental_data(df: pd.DataFrame, fundamental: str, years: List[int]) -> pd.DataFrame:
-    """
-    Extract specific fundamental data across specified years.
-    
-    Args:
-        df: Filtered DataFrame
-        fundamental: Financial metric name
-        years: List of years to extract
-    
-    Returns:
-        DataFrame with company, sector, and yearly data for the fundamental
-    """
-    
-    # Convert spaces to underscores to match CSV column naming convention
-    fundamental_normalized = fundamental.replace(' ', '_')
-    
-    # Create column names for the requested years
-    fundamental_cols = [f"{fundamental_normalized}_{year}" for year in years]
-    
-    # Check which columns actually exist in the data
-    available_cols = [col for col in fundamental_cols if col in df.columns]
-    
-    if not available_cols:
+    if fundamental_col not in df.columns:
         return pd.DataFrame()
+
+    # Columns to keep
+    result_cols = ['company', 'sector', 'period', fundamental_col]
     
-    # Extract basic info + fundamental data
-    result_cols = ['company', 'sector'] + available_cols
+    # Select and rename the fundamental column to a generic 'value'
     result_df = df[result_cols].copy()
+    result_df.rename(columns={fundamental_col: 'value'}, inplace=True)
     
-    # Melt the data to long format for easier visualization
-    melted_df = pd.melt(
-        result_df,
-        id_vars=['company', 'sector'],
-        value_vars=available_cols,
-        var_name='metric_year',
-        value_name='value'
-    )
+    # Add a 'metric' column
+    result_df['metric'] = fundamental
     
-    # Extract year from column name
-    melted_df['year'] = melted_df['metric_year'].str.extract(r'(\d{4})').astype(int)
-    melted_df['metric'] = fundamental
-    
-    # Clean up and reorder columns
-    final_df = melted_df[['company', 'sector', 'metric', 'year', 'value']].copy()
+    # Reorder columns
+    final_df = result_df[['company', 'sector', 'metric', 'period', 'value']].copy()
     
     # Remove rows with null values
     final_df = final_df.dropna(subset=['value']).copy()
     
-    # Sort by company and year
-    final_df = final_df.sort_values(['company', 'year']).reset_index(drop=True)
+    # Sort by company and period
+    final_df = final_df.sort_values(['company', 'period']).reset_index(drop=True)
     
     return final_df
+
 
 def retrieve_node(state: dict) -> dict:
     """
@@ -235,6 +184,7 @@ def retrieve_node(state: dict) -> dict:
     indices = state.get("indices")
     fundamental = state.get("fundamental")
     time_period = state.get("time_period", "2015-2024")
+    period_type = state.get("period_type", "annual")
     
     # Retrieve data
     result = retrieve_data(
@@ -242,7 +192,8 @@ def retrieve_node(state: dict) -> dict:
         sector=sector,
         indices=indices,
         fundamental=fundamental,
-        time_period=time_period
+        time_period=time_period,
+        period_type=period_type
     )
     
     # Update state with complete result structure
