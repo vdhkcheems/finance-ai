@@ -8,6 +8,7 @@ def retrieve_data(
     sector: Optional[List[str]] = None,
     indices: Optional[List[str]] = None,
     fundamental: Optional[str] = None,
+    fundamentals: Optional[List[str]] = None,
     time_period: str = "2015-2024",
     period_type: str = "annual"
 ) -> Dict:
@@ -19,7 +20,8 @@ def retrieve_data(
         company: List of company names to filter
         sector: List of sectors to filter  
         indices: List of indices to filter (e.g., ["Nifty 50", "NSE 500"])
-        fundamental: Financial metric to extract
+        fundamental: Single financial metric to extract (deprecated, use fundamentals)
+        fundamentals: List of financial metrics to extract
         time_period: Time range (e.g., "2020-2024", "2021", "2022-Q2")
         period_type: "annual" or "quarterly"
     
@@ -71,12 +73,26 @@ def retrieve_data(
             if df.empty:
                 return {"data": pd.DataFrame(), "error": f"No data found for indices: {indices}", "metadata": {}}
 
-        # Extract fundamental data if specified
-        if fundamental:
-            extracted_data = extract_fundamental_data(df, fundamental)
-            if extracted_data.empty:
-                return {"data": pd.DataFrame(), "error": f"No data found for fundamental '{fundamental}'", "metadata": {}}
-            return {"data": extracted_data, "error": None, "metadata": {}}
+        # Handle fundamentals (multiple metrics)
+        metrics_to_extract = []
+        if fundamentals:
+            metrics_to_extract = fundamentals
+        elif fundamental:
+            metrics_to_extract = [fundamental]
+        
+        if metrics_to_extract:
+            all_extracted_data = []
+            for metric in metrics_to_extract:
+                extracted_data = extract_fundamental_data(df, metric)
+                if not extracted_data.empty:
+                    all_extracted_data.append(extracted_data)
+            
+            if not all_extracted_data:
+                return {"data": pd.DataFrame(), "error": f"No data found for fundamentals: {metrics_to_extract}", "metadata": {}}
+            
+            # Combine all fundamental data
+            combined_data = pd.concat(all_extracted_data, ignore_index=True)
+            return {"data": combined_data, "error": None, "metadata": {}}
             
         # If no fundamental specified, return basic info
         else:
@@ -185,6 +201,14 @@ def retrieve_node(state: dict) -> dict:
     fundamental = state.get("fundamental")
     time_period = state.get("time_period", "2015-2024")
     period_type = state.get("period_type", "annual")
+    aggregations = state.get("aggregations", [])
+    
+    # Extract fundamentals from aggregations if available
+    fundamentals = []
+    if aggregations:
+        fundamentals = [agg.get("metric") for agg in aggregations if agg.get("metric")]
+        # Remove duplicates while preserving order
+        fundamentals = list(dict.fromkeys(fundamentals))
     
     # Retrieve data
     result = retrieve_data(
@@ -192,6 +216,7 @@ def retrieve_node(state: dict) -> dict:
         sector=sector,
         indices=indices,
         fundamental=fundamental,
+        fundamentals=fundamentals if fundamentals else None,
         time_period=time_period,
         period_type=period_type
     )

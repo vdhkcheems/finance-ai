@@ -241,8 +241,22 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
             - If no time period is mentioned, default to "2015-2024".
             - Interpret phrases like "last 5 years" relative to the latest available data (2024), so it would be "2020-2024".
         7.  "period_type": Specify whether the user wants "annual" or "quarterly" data. If the query mentions "quarter," "quarterly," or a specific quarter (like Q1, Q2), set this to "quarterly." Otherwise, default to "annual".
-        8.  "graph_needed": Set to `true` if the query implies a request for a graph, chart, plot, or any form of visualization. Otherwise, `false`.
-        9.  "table_needed": Set to `true` if the query implies a request for data in a table or tabular format. Otherwise, `false`.
+        8.  "aggregations": A list of objects for each metric-aggregation combination requested. Each object should have:
+            - "metric": The financial metric (e.g., "sales", "net profit", "eps")
+            - "aggregation": The type of aggregation requested ("avg", "median", "sum", "min", "max", "growth")
+            Examples:
+            - For "avg sales and max eps": [{{"metric": "sales", "aggregation": "avg"}}, {{"metric": "eps", "aggregation": "max"}}]
+            - For "growth of pat": [{{"metric": "net profit", "aggregation": "growth"}}]
+            - For simple queries without aggregation like "show sales": [{{"metric": "sales", "aggregation": null}}]
+            Aggregation keyword mapping:
+            - "average", "avg", "mean" → "avg"
+            - "median" → "median"
+            - "total", "sum" → "sum"
+            - "highest", "maximum", "max" → "max"
+            - "lowest", "minimum", "min" → "min"
+            - "growth", "grew", "increase", "change" → "growth"
+        9.  "graph_needed": Set to `true` if the query implies a request for a graph, chart, plot, or any form of visualization. Otherwise, `false`.
+        10. "table_needed": Set to `true` if the query implies a request for data in a table or tabular format. Otherwise, `false`.
 
         Context for parsing:
         - Detected Companies: {potential_companies_display}
@@ -293,6 +307,7 @@ def classify_and_parse_node(state: dict) -> dict:
     state["fundamental"] = result["fundamental"]
     state["time_period"] = result["time_period"]
     state["period_type"] = result.get("period_type", "annual")
+    state["aggregations"] = result.get("aggregations", [])
     state["graph_needed"] = result["graph_needed"]
     state["table_needed"] = result["table_needed"]
     

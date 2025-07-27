@@ -1,10 +1,21 @@
 from langgraph.graph import StateGraph, END
 from agents.query_classifier import classify_and_parse_node, classification_router
 from agents.data_retriever import retrieve_node
+from agents.aggregator import aggregator_node
 from agents.visualizer import visualizer_node
 
+def aggregation_router(state: dict) -> str:
+    """Router to determine if aggregation is needed after data retrieval"""
+    aggregations = state.get("aggregations", [])
+    if aggregations and any(agg.get("aggregation") for agg in aggregations):
+        return "aggregate"
+    elif state.get("graph_needed", False):
+        return "visualize"
+    else:
+        return "__end__"
+
 def graph_router(state: dict) -> str:
-    """Router to determine if visualization is needed after data retrieval"""
+    """Router to determine if visualization is needed after aggregation"""
     if state.get("graph_needed", False):
         return "visualize"
     else:
@@ -13,9 +24,10 @@ def graph_router(state: dict) -> str:
 def build_graph():
     workflow = StateGraph(dict)
 
-    # Add nodes - now including visualizer
+    # Add nodes - now including aggregator
     workflow.add_node("classify_and_parse", classify_and_parse_node)
     workflow.add_node("retrieve", retrieve_node)
+    workflow.add_node("aggregate", aggregator_node)
     workflow.add_node("visualize", visualizer_node)
 
     # Set entrypoint
@@ -33,9 +45,20 @@ def build_graph():
         }
     )
 
-    # Router from retrieve to visualize or END based on graph_needed
+    # Router from retrieve to aggregate, visualize, or END
     workflow.add_conditional_edges(
         "retrieve",
+        aggregation_router,
+        {
+            "aggregate": "aggregate",
+            "visualize": "visualize",
+            "__end__": END
+        }
+    )
+
+    # Router from aggregate to visualize or END based on graph_needed
+    workflow.add_conditional_edges(
+        "aggregate",
         graph_router,
         {
             "visualize": "visualize",
@@ -59,6 +82,12 @@ def run_workflow(user_query: str):
     print("\nFinal state:")
     for key, value in final_state.items():
         print(f"{key}: {value}")
+    
+    # # Show aggregated results if available
+    # if "aggregated_data" in final_state:
+    #     print(f"\n📊 Aggregated results available")
+    #     if not final_state["aggregated_data"].get("data").empty:
+    #         print(final_state["aggregated_data"]["data"])
     
     # Show graph path if created
     if "graph_path" in final_state:
