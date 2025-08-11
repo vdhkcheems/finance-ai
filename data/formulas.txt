@@ -1,0 +1,26 @@
+# Derived fundamentals database
+# Format:
+# target = expression  # optional description
+# You can also map aliases using lines like: alias: target
+
+# Aliases
+pat: net_profit
+revenue: sales
+de_ratio: debt_to_equity
+
+# Margins and ratios
+net_profit_margin = net_profit / sales * 100  # PAT margin in percent
+pat_margin = net_profit / sales * 100  # alias via explicit formula
+operating_margin = (sales - cost_of_goods_sold) / sales * 100  # requires COGS if available
+
+# Per-share computations
+pe_ratio = avg_price / eps  # Price to Earnings
+earnings_yield = eps / avg_price * 100
+
+# Returns and leverage
+return_on_equity = roe  # passthrough alias
+debt_to_equity = debt_equity  # passthrough alias
+
+# Growth helpers (year-over-year, when you pre-aggregate outside)
+# yoy_growth = (current - previous) / previous * 100  # compute externally when periods aligned
+

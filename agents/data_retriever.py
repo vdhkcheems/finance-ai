@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Union
+from .math import MathAgent
 
 def retrieve_data(
     csv_path: str = 'data/data.csv',
@@ -82,10 +83,19 @@ def retrieve_data(
         
         if metrics_to_extract:
             all_extracted_data = []
+            math_agent = MathAgent()
             for metric in metrics_to_extract:
                 extracted_data = extract_fundamental_data(df, metric)
                 if not extracted_data.empty:
                     all_extracted_data.append(extracted_data)
+                else:
+                    # Try derived metric via MathAgent formulas
+                    try:
+                        derived_df = math_agent.compute_derived_metric(df, metric)
+                    except Exception:
+                        derived_df = None
+                    if derived_df is not None and not derived_df.empty:
+                        all_extracted_data.append(derived_df)
             
             if not all_extracted_data:
                 return {"data": pd.DataFrame(), "error": f"No data found for fundamentals: {metrics_to_extract}", "metadata": {}}

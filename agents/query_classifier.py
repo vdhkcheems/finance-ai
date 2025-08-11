@@ -220,7 +220,14 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
     potential_sectors_display = [sector_mapping.get(s, s.title()) for s in potential_sectors]
     potential_indices_display = [indices_mapping.get(i, i.title()) for i in potential_indices]
     
-    fundamentals = ['sales', 'net profit', 'roe', 'eps', 'debt equity', 'dividend yield', 'avg price']
+    # include derived metrics from formulas database
+    try:
+        from agents.math import MathAgent
+        derived = MathAgent().available_derived_metrics()
+    except Exception:
+        derived = []
+    base_fundamentals = ['sales', 'net profit', 'roe', 'eps', 'debt equity', 'dividend yield', 'avg price']
+    fundamentals = base_fundamentals + [f.replace('_', ' ') for f in derived if f not in base_fundamentals]
     
     prompt = f"""
         You are a financial query classifier and parser. Your task is to analyze the user's query about financial data and extract key information into a structured JSON format. The available data includes both annual and quarterly figures from 2015 to 2024.
