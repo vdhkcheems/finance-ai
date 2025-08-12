@@ -70,11 +70,26 @@ def generate_graph(df: pd.DataFrame, metadata: dict, state: dict) -> str:
     plt.style.use('default')
     fig, ax = plt.subplots(figsize=(12, 6))
     
+    # Try to construct a 'year' column from 'period' when missing
+    if 'year' not in df.columns and 'period' in df.columns:
+        df = df.copy()
+        # Attempt numeric year first (annual data like '2021')
+        year_numeric = pd.to_numeric(df['period'], errors='coerce')
+        if year_numeric.notna().any():
+            df['year'] = year_numeric.astype('Int64')
+        else:
+            # Fallback: extract the YYYY from formats like 'YYYY-Qn'
+            extracted = df['period'].astype(str).str.extract(r'^(\d{4})')[0]
+            df['year'] = pd.to_numeric(extracted, errors='coerce').astype('Int64')
+
     # Determine graph type based on data structure
-    if 'year' in df.columns and 'value' in df.columns:
-        # Time series data
+    if 'year' in df.columns and 'value' in df.columns and df['year'].nunique() > 1:
+        # Multi-year time series
         graph_path = create_time_series_plot(df, metadata, state, ax)
-    elif 'company' in df.columns and len(df['company'].unique()) > 1:
+    elif 'company' in df.columns and len(df['company'].unique()) > 1 and df['period'].nunique() > 1:
+        # Multiple companies across multiple periods -> grouped bar by year
+        graph_path = create_comparison_plot(df, metadata, state, ax)
+    elif 'company' in df.columns and len(df['company'].unique()) > 1 and df['period'].nunique() == 1:
         # Multiple companies comparison
         graph_path = create_comparison_plot(df, metadata, state, ax)
     else:
@@ -141,7 +156,7 @@ def create_comparison_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) ->
     fundamental = metadata.get("fundamental", "Financial Metric")
     indices = state.get("indices", [])
     
-    if 'year' in df.columns:
+    if 'year' in df.columns and df['year'].nunique() > 1:
         # Multi-year comparison - use grouped bar chart
         pivot_df = df.pivot_table(index='year', columns='company', values='value', fill_value=0)
         
@@ -167,7 +182,8 @@ def create_comparison_plot(df: pd.DataFrame, metadata: dict, state: dict, ax) ->
         for company in companies:
             company_data = df[df['company'] == company]
             if isinstance(company_data, pd.DataFrame) and not company_data.empty:
-                values.append(company_data['value'].iloc[0])
+                # For single period, aggregate deterministically (e.g., mean) in case of duplicates
+                values.append(float(company_data['value'].mean()))
             else:
                 values.append(0)
         

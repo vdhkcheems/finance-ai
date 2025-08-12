@@ -6,3 +6,4 @@ python-dotenv
 matplotlib
 fuzzywuzzy
 python-Levenshtein
+streamlit
