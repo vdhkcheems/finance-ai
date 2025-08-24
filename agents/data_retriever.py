@@ -21,8 +21,8 @@ def retrieve_data(
         company: List of company names to filter
         sector: List of sectors to filter  
         indices: List of indices to filter (e.g., ["Nifty 50", "NSE 500"])
-        fundamental: Single financial metric to extract (deprecated, use fundamentals)
-        fundamentals: List of financial metrics to extract
+        fundamental: Single financial metric to extract (deprecated; will be merged into fundamentals)
+        fundamentals: List of financial metrics to extract; preferred over 'fundamental'
         time_period: Time range (e.g., "2020-2024", "2021", "2022-Q2")
         period_type: "annual" or "quarterly"
     
@@ -77,8 +77,9 @@ def retrieve_data(
         # Handle fundamentals (multiple metrics)
         metrics_to_extract = []
         if fundamentals:
-            metrics_to_extract = fundamentals
-        elif fundamental:
+            metrics_to_extract = [m for m in fundamentals if isinstance(m, str) and m]
+        # backward compatibility: include single fundamental if provided
+        if not metrics_to_extract and fundamental:
             metrics_to_extract = [fundamental]
         
         if metrics_to_extract:
@@ -102,12 +103,12 @@ def retrieve_data(
             
             # Combine all fundamental data
             combined_data = pd.concat(all_extracted_data, ignore_index=True)
-            return {"data": combined_data, "error": None, "metadata": {}}
+            return {"data": combined_data, "error": None, "metadata": {"fundamentals": metrics_to_extract}}
             
         # If no fundamental specified, return basic info
         else:
             basic_info = df[['company', 'sector', 'indices', 'period']].copy()
-            return {"data": basic_info, "error": None, "metadata": {}}
+            return {"data": basic_info, "error": None, "metadata": {"fundamentals": []}}
             
     except FileNotFoundError:
         return {"data": pd.DataFrame(), "error": f"CSV file not found: {csv_path}", "metadata": {}}
@@ -209,16 +210,16 @@ def retrieve_node(state: dict) -> dict:
     sector = state.get("sector") 
     indices = state.get("indices")
     fundamental = state.get("fundamental")
+    fundamentals_list = state.get("fundamentals", [])
     time_period = state.get("time_period", "2015-2024")
     period_type = state.get("period_type", "annual")
     aggregations = state.get("aggregations", [])
     
     # Extract fundamentals from aggregations if available
-    fundamentals = []
+    fundamentals_from_aggs: List[str] = []
     if aggregations:
-        fundamentals = [agg.get("metric") for agg in aggregations if agg.get("metric")]
-        # Remove duplicates while preserving order
-        fundamentals = list(dict.fromkeys(fundamentals))
+        fundamentals_from_aggs = [agg.get("metric") for agg in aggregations if isinstance(agg, dict) and agg.get("metric")]
+        fundamentals_from_aggs = list(dict.fromkeys(fundamentals_from_aggs))
     
     # Retrieve data
     result = retrieve_data(
@@ -226,7 +227,7 @@ def retrieve_node(state: dict) -> dict:
         sector=sector,
         indices=indices,
         fundamental=fundamental,
-        fundamentals=fundamentals if fundamentals else None,
+        fundamentals=fundamentals_list if fundamentals_list else (fundamentals_from_aggs if fundamentals_from_aggs else None),
         time_period=time_period,
         period_type=period_type
     )

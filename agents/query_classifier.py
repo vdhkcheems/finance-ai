@@ -238,7 +238,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
         2.  "company": A list of company names found in the query. Example: ["Infosys", "TCS"]. If no specific company is mentioned, use null.
         3.  "sector": A list of business sectors found in the query. Example: ["IT", "Banking"]. If no sector is mentioned, use null.
         4.  "indices": A list of stock market indices found in the query. Example: ["Nifty 50", "BSE 30"]. If no index is mentioned, use null.
-        5.  "fundamental": The specific financial metric the user is asking about (e.g., "sales", "net profit", "roe", "eps", "debt_equity", "dividend_yield", "avg_price"). Use "avg_price" for any queries related to stock price. If no metric is mentioned, use null.
+        5.  "fundamentals": A list of the financial metrics requested (e.g., ["sales", "net profit"]). Use "avg_price" for any stock price related queries. If none are mentioned, use an empty list.
         6.  "time_period": The time frame for the query.
             - For a single year, use "YYYY" (e.g., "2021").
             - For a range of years, use "YYYY-YYYY" (e.g., "2020-2024").
@@ -248,13 +248,13 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
             - If no time period is mentioned, default to "2015-2024".
             - Interpret phrases like "last 5 years" relative to the latest available data (2024), so it would be "2020-2024".
         7.  "period_type": Specify whether the user wants "annual" or "quarterly" data. If the query mentions "quarter," "quarterly," or a specific quarter (like Q1, Q2), set this to "quarterly." Otherwise, default to "annual".
-        8.  "aggregations": A list of objects for each metric-aggregation combination requested. Each object should have:
+        8.  "aggregations": A list of objects aligned 1:1 with the fundamentals list. Each object should have:
             - "metric": The financial metric (e.g., "sales", "net profit", "eps")
             - "aggregation": The type of aggregation requested ("avg", "median", "sum", "min", "max", "growth")
             Examples:
-            - For "avg sales and max eps": [{{"metric": "sales", "aggregation": "avg"}}, {{"metric": "eps", "aggregation": "max"}}]
-            - For "growth of pat": [{{"metric": "net profit", "aggregation": "growth"}}]
-            - For simple queries without aggregation like "show sales": [{{"metric": "sales", "aggregation": null}}]
+            - For "avg sales and max eps": fundamentals: ["sales", "eps"], aggregations: [{{"metric": "sales", "aggregation": "avg"}}, {{"metric": "eps", "aggregation": "max"}}]
+            - For "growth of pat": fundamentals: ["net profit"], aggregations: [{{"metric": "net profit", "aggregation": "growth"}}]
+            - For simple queries without aggregation like "show sales": fundamentals: ["sales"], aggregations: [{{"metric": "sales", "aggregation": null}}]
             Aggregation keyword mapping:
             - "average", "avg", "mean" → "avg"
             - "median" → "median"
@@ -262,6 +262,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
             - "highest", "maximum", "max" → "max"
             - "lowest", "minimum", "min" → "min"
             - "growth", "grew", "increase", "change" → "growth"
+        IMPORTANT: The metrics in "aggregations" MUST MATCH the order and content of "fundamentals" exactly. If no aggregation is implied for a metric, set its aggregation to null.
         9.  "graph_needed": Set to `true` if the query implies a request for a graph, chart, plot, or any form of visualization. Otherwise, `false`.
         10. "table_needed": Set to `true` if the query implies a request for data in a table or tabular format. Otherwise, `false`.
 
@@ -285,6 +286,37 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
     try:
         result = json.loads(cleaned)
         result["classification"] = "financial_known"  # Force since we have matches
+
+        # Normalize fundamentals to a list and enforce 1:1 with aggregations
+        fundamentals_from_result = result.get("fundamentals")
+        if isinstance(fundamentals_from_result, list):
+            fundamentals_list = [f for f in fundamentals_from_result if isinstance(f, str) and f]
+        elif isinstance(result.get("fundamental"), str) and result.get("fundamental"):
+            fundamentals_list = [result.get("fundamental")]
+        else:
+            # derive from aggregations metrics if present
+            aggs = result.get("aggregations") or []
+            fundamentals_list = []
+            for agg in aggs:
+                m = (agg or {}).get("metric")
+                if isinstance(m, str) and m and m not in fundamentals_list:
+                    fundamentals_list.append(m)
+
+        # Build normalized aggregations aligned with fundamentals_list
+        aggs_input = result.get("aggregations") or []
+        metric_to_agg = {}
+        for agg in aggs_input:
+            if isinstance(agg, dict):
+                m = agg.get("metric")
+                if isinstance(m, str) and m and m not in metric_to_agg:
+                    metric_to_agg[m] = agg.get("aggregation") if agg.get("aggregation") is not None else None
+
+        normalized_aggs = []
+        for m in fundamentals_list:
+            normalized_aggs.append({"metric": m, "aggregation": metric_to_agg.get(m)})
+
+        result["fundamentals"] = fundamentals_list
+        result["aggregations"] = normalized_aggs
         return result
     except Exception as e:
         # Return default structure on parsing error
@@ -294,6 +326,7 @@ def classify_and_parse_query(query, csv_path='data/data.csv'):
             "sector": potential_sectors_display if potential_sectors_display else None,
             "indices": potential_indices_display if potential_indices_display else None,
             "fundamental": None,
+            "fundamentals": [],
             "time_period": "2015-2024",
             "graph_needed": False,
             "table_needed": False
@@ -311,7 +344,8 @@ def classify_and_parse_node(state: dict) -> dict:
     state["company"] = result["company"]
     state["sector"] = result["sector"]
     state["indices"] = result["indices"]
-    state["fundamental"] = result["fundamental"]
+    #state["fundamental"] = result["fundamental"]
+    state["fundamentals"] = result.get("fundamentals", [])
     state["time_period"] = result["time_period"]
     state["period_type"] = result.get("period_type", "annual")
     state["aggregations"] = result.get("aggregations", [])
